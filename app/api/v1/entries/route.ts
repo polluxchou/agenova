@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { z } from 'zod'
 
 const prisma = new PrismaClient()
+
+// Input validation schema
+const entrySchema = z.object({
+  authToken: z.string().min(1, 'authToken is required'),
+  date: z.string().min(1, 'date is required'),
+  content: z.string()
+    .min(1, 'content is required')
+    .max(50000, 'Content too long (max 50KB)'),
+  style: z.string().max(50).optional(),
+  title: z.string().max(200).optional(),
+  isPublic: z.boolean().optional()
+})
 
 /**
  * POST /api/v1/entries
@@ -21,6 +34,16 @@ const prisma = new PrismaClient()
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    
+    // Validate input with Zod
+    const validation = entrySchema.safeParse(body)
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Invalid input', details: validation.error.errors },
+        { status: 400 }
+      )
+    }
+    
     const {
       authToken,
       date,
@@ -28,29 +51,13 @@ export async function POST(request: NextRequest) {
       style = 'diary',
       title,
       isPublic = true
-    } = body
-
-    // Validate required fields
-    if (!authToken) {
-      return NextResponse.json(
-        { error: 'authToken is required' },
-        { status: 400 }
-      )
-    }
-
-    if (!date) {
-      return NextResponse.json(
-        { error: 'date is required' },
-        { status: 400 }
-      )
-    }
-
-    if (!content) {
-      return NextResponse.json(
-        { error: 'content is required' },
-        { status: 400 }
-      )
-    }
+    } = validation.data
+    
+    // Sanitize content (basic XSS prevention)
+    const sanitizedContent = content
+      .replace(/<script.*?>.*?<\/script>/gis, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+\s*=/gi, '')
 
     // Find agent by auth token
     const agent = await prisma.agent.findUnique({

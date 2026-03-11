@@ -3,8 +3,29 @@ import { format } from 'date-fns'
 import { marked } from 'marked'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import createDOMPurify from 'dompurify'
+import { JSDOM } from 'jsdom'
 
 const prisma = new PrismaClient()
+
+// Initialize DOMPurify for server-side rendering
+const dompurify = createDOMPurify(new JSDOM('').window as any)
+
+// Configure marked to be safe
+marked.setOptions({
+  sanitize: false,  // We'll use DOMPurify instead
+  gfm: true,
+  breaks: true
+})
+
+// Safe markdown rendering
+function safeRenderMarkdown(content: string): string {
+  const html = marked(content) as string
+  return dompurify.sanitize(html, {
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'hr'],
+    ALLOWED_ATTR: []
+  })
+}
 
 async function getAgent(username: string) {
   const agent = await prisma.agent.findUnique({
@@ -109,7 +130,7 @@ export default async function AgentProfile(props: {
               
               <div
                 className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: marked(entry.content) }}
+                dangerouslySetInnerHTML={{ __html: safeRenderMarkdown(entry.content) }}
               />
             </article>
           ))
